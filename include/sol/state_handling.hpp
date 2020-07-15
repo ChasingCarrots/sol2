@@ -152,6 +152,11 @@ namespace sol {
 		std::cerr << err;
 		std::cerr << std::endl;
 #endif
+		// CARROT: we keep getting crashdumps that crash while pushing the err
+		// to the stack with a memory problem. So we'll try this workaround:
+		// limiting the error message to a certain size.
+		if(err.size() > 1000) err.erase(err.begin()+1000, err.end());
+
 		// replacing information of stack error into pfr
 		int target = result.stack_index();
 		if (result.pop_count() > 0) {
