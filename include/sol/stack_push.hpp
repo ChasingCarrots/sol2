@@ -83,7 +83,7 @@ namespace sol { namespace stack {
 #if SOL_IS_ON(SOL_SAFE_STACK_CHECK_I_)
 		luaL_checkstack(L, 1, detail::not_enough_stack_space_environment);
 #endif // make sure stack doesn't overflow
-#if SOL_LUA_VERSION < 502
+#if SOL_LUA_VESION_I_ < 502
 		// Use lua_getfenv
 		lua_getfenv(L, index);
 #else
@@ -265,13 +265,13 @@ namespace sol { namespace stack {
 #if SOL_IS_ON(SOL_SAFE_STACK_CHECK_I_)
 				luaL_checkstack(L, 1, detail::not_enough_stack_space_integral);
 #endif // make sure stack doesn't overflow
-#if SOL_LUA_VERSION >= 503
+#if SOL_LUA_VESION_I_ >= 503
 				if (stack_detail::integer_value_fits<Tu>(value)) {
 					lua_pushinteger(L, static_cast<lua_Integer>(value));
 					return 1;
 				}
 #endif // Lua 5.3 and above
-#if (defined(SOL_SAFE_NUMERICS) && SOL_SAFE_NUMERICS) && !(defined(SOL_NO_CHECK_NUMBER_PRECISION) && SOL_NO_CHECK_NUMBER_PRECISION)
+#if SOL_IS_ON(SOL_NUMBER_PRECISION_CHECKS_I_)
 				if (static_cast<T>(llround(static_cast<lua_Number>(value))) != value) {
 #if SOL_IS_OFF(SOL_EXCEPTIONS_I_)
 					// Is this really worth it?
@@ -297,7 +297,7 @@ namespace sol { namespace stack {
 				luaL_Stream* source { std::forward<Args>(args)... };
 				luaL_Stream* stream = static_cast<luaL_Stream*>(lua_newuserdata(L, sizeof(luaL_Stream)));
 				stream->f = source->f;
-#if !defined(SOL_LUAJIT) && (SOL_LUA_VERSION > 501)
+#if SOL_IS_ON(SOL_LUAL_STREAM_USE_CLOSE_FUNCTION_I_)
 				stream->closef = source->closef;
 #endif // LuaJIT and Lua 5.1 and below do not have
 				return 1;
@@ -306,7 +306,7 @@ namespace sol { namespace stack {
 				luaL_Stream& source(std::forward<Args>(args)...);
 				luaL_Stream* stream = static_cast<luaL_Stream*>(lua_newuserdata(L, sizeof(luaL_Stream)));
 				stream->f = source.f;
-#if !defined(SOL_LUAJIT) && (SOL_LUA_VERSION > 501)
+#if SOL_IS_ON(SOL_LUAL_STREAM_USE_CLOSE_FUNCTION_I_)
 				stream->closef = source.closef;
 #endif // LuaJIT and Lua 5.1 and below do not have
 				return 1;
@@ -376,7 +376,7 @@ namespace sol { namespace stack {
 			int tableindex = lua_gettop(L);
 			std::size_t index = 1;
 			for (const auto& i : cont) {
-#if SOL_LUA_VERSION >= 503
+#if SOL_LUA_VESION_I_ >= 503
 				int p = is_nested ? stack::push(L, as_nested_ref(i)) : stack::push(L, i);
 				for (int pi = 0; pi < p; ++pi) {
 					lua_seti(L, tableindex, static_cast<lua_Integer>(index++));
@@ -746,7 +746,7 @@ namespace sol { namespace stack {
 	struct unqualified_pusher<char> {
 		static int push(lua_State* L, char c) {
 			const char str[2] = { c, '\0' };
-			return stack::push(L, str, 1);
+			return stack::push(L, static_cast<const char*>(str), 1);
 		}
 	};
 
@@ -932,7 +932,7 @@ namespace sol { namespace stack {
 			}
 			std::string u8str("", 0);
 			u8str.resize(needed_size);
-			char* target = &u8str[0];
+			char* target = const_cast<char*>(u8str.data());
 			return convert_into(L, target, needed_size, strb, stre);
 		}
 	};
@@ -1009,7 +1009,7 @@ namespace sol { namespace stack {
 			}
 			std::string u8str("", 0);
 			u8str.resize(needed_size);
-			char* target = &u8str[0];
+			char* target = const_cast<char*>(u8str.data());
 			return convert_into(L, target, needed_size, strb, stre);
 		}
 	};
@@ -1042,7 +1042,8 @@ namespace sol { namespace stack {
 		}
 
 		static int push(lua_State* L, const wchar_t (&str)[N], std::size_t sz) {
-			return stack::push<const wchar_t*>(L, str, str + sz);
+			const wchar_t* str_ptr = static_cast<const wchar_t*>(str);
+			return stack::push<const wchar_t*>(L, str_ptr, str_ptr + sz);
 		}
 	};
 
@@ -1053,7 +1054,8 @@ namespace sol { namespace stack {
 		}
 
 		static int push(lua_State* L, const char16_t (&str)[N], std::size_t sz) {
-			return stack::push<const char16_t*>(L, str, str + sz);
+			const char16_t* str_ptr = static_cast<const char16_t*>(str);
+			return stack::push<const char16_t*>(L, str_ptr, str_ptr + sz);
 		}
 	};
 
@@ -1064,7 +1066,8 @@ namespace sol { namespace stack {
 		}
 
 		static int push(lua_State* L, const char32_t (&str)[N], std::size_t sz) {
-			return stack::push<const char32_t*>(L, str, str + sz);
+			const char32_t* str_ptr = static_cast<const char32_t*>(str);
+			return stack::push<const char32_t*>(L, str_ptr, str_ptr + sz);
 		}
 	};
 
@@ -1072,7 +1075,7 @@ namespace sol { namespace stack {
 	struct unqualified_pusher<wchar_t> {
 		static int push(lua_State* L, wchar_t c) {
 			const wchar_t str[2] = { c, '\0' };
-			return stack::push(L, &str[0], 1);
+			return stack::push(L, static_cast<const wchar_t*>(str), 1);
 		}
 	};
 
@@ -1080,7 +1083,7 @@ namespace sol { namespace stack {
 	struct unqualified_pusher<char16_t> {
 		static int push(lua_State* L, char16_t c) {
 			const char16_t str[2] = { c, '\0' };
-			return stack::push(L, &str[0], 1);
+			return stack::push(L, static_cast<const char16_t*>(str), 1);
 		}
 	};
 
@@ -1088,7 +1091,7 @@ namespace sol { namespace stack {
 	struct unqualified_pusher<char32_t> {
 		static int push(lua_State* L, char32_t c) {
 			const char32_t str[2] = { c, '\0' };
-			return stack::push(L, &str[0], 1);
+			return stack::push(L, static_cast<const char32_t*>(str), 1);
 		}
 	};
 

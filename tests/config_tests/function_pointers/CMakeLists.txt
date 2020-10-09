@@ -22,18 +22,50 @@
 
 # # # # sol3 tests - simple regression tests
 
-file(GLOB simple_test_sources source/*.cpp)
-source_group(test_sources FILES ${simple_test_sources})
+file(GLOB test_sources source/*.cpp)
+source_group(sources FILES ${test_sources})
 
 function(CREATE_TEST test_target_name test_name target_sol)
-	add_executable(${test_target_name} ${simple_test_sources})
+	add_executable(${test_target_name} ${test_sources})
 	set_target_properties(${test_target_name}
 		PROPERTIES
 		OUTPUT_NAME ${test_name}
 		EXPORT_NAME sol2::${test_name})
 	target_link_libraries(${test_target_name} 
 		PUBLIC Threads::Threads ${LUA_LIBRARIES} ${target_sol})
+	target_compile_definitions(${test_target_name}
+		PRIVATE SOL_GET_FUNCTION_POINTER_UNSAFE=1 SOL_ALL_SAFETIES_ON=1)
+	target_include_directories(${test_target_name}
+		PRIVATE ../../../examples/include)
 
+	if (MSVC)
+		if (NOT CMAKE_COMPILER_ID MATCHES "Clang")
+			target_compile_options(${test_target_name} 
+				PRIVATE /bigobj /W4)
+		endif()
+	else()
+		target_compile_options(${test_target_name} 
+			PRIVATE -std=c++1z -pthread
+			-Wno-unknown-warning -Wno-unknown-warning-option
+			-Wall -Wpedantic -Werror -pedantic -pedantic-errors
+			-Wno-noexcept-type)
+
+		if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+			# For another day, when C++ is not so crap
+			# and we have time to audit the entire lib
+			# for all uses of `detail::swallow`...
+			#target_compile_options(${test_target_name}
+			#	PRIVATE -Wcomma)		
+		endif()
+
+		if (IS_X86)
+			if(MINGW)
+				set_target_properties(${test_target_name}
+					PROPERTIES
+					LINK_FLAGS -static-libstdc++)
+			endif()
+		endif()	
+	endif()
 	if (MSVC)
 		target_compile_options(${test_target_name}
 			PRIVATE /EHsc /std:c++latest)
@@ -50,7 +82,7 @@ function(CREATE_TEST test_target_name test_name target_sol)
 		target_compile_definitions(${test_target_name} 
 			PRIVATE SOL2_CI)
 	endif()
-	
+
 	if (CMAKE_DL_LIBS)
 		target_link_libraries(${test_target_name}
 			PRIVATE ${CMAKE_DL_LIBS})
@@ -61,11 +93,11 @@ function(CREATE_TEST test_target_name test_name target_sol)
 endfunction(CREATE_TEST)
 
 if (SOL2_TESTS)
-	CREATE_TEST(regression_tests "regression_tests" sol2::sol2)
+	CREATE_TEST(config_function_pointers_tests "config_function_pointers_tests" sol2::sol2)
 endif()
 if (SOL2_TESTS_SINGLE)
-	CREATE_TEST(regression_tests_single "regression_tests.single" sol2::sol2_single)
+	CREATE_TEST(config_function_pointers_tests_single "config_function_pointers_tests.single" sol2::sol2_single)
 endif()
 if (SOL2_TESTS_SINGLE_GENERATED)
-	CREATE_TEST(regression_tests_generated_single "regression_tests.single.generated" sol2::sol2_single_generated)
+	CREATE_TEST(config_function_pointers_tests_generated_single "config_function_pointers_tests.single.generated" sol2::sol2_single_generated)
 endif()

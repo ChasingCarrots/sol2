@@ -46,7 +46,7 @@ namespace sol {
 			bool is53mod = loaded && !(loaded->is<bool>() && !loaded->as<bool>());
 			if (is53mod)
 				return loaded;
-#if SOL_LUA_VERSION <= 501
+#if SOL_LUA_VESION_I_ <= 501
 			auto loaded51 = global.traverse_get<optional<object>>("package", "loaded", key);
 			bool is51mod = loaded51 && !(loaded51->is<bool>() && !loaded51->as<bool>());
 			if (is51mod)
@@ -57,7 +57,7 @@ namespace sol {
 
 		template <typename T>
 		void ensure_package(const std::string& key, T&& sr) {
-#if SOL_LUA_VERSION <= 501
+#if SOL_LUA_VESION_I_ <= 501
 			auto pkg = global["package"];
 			if (!pkg.valid()) {
 				pkg = create_table_with("loaded", create_table_with(key, sr));
@@ -120,7 +120,7 @@ namespace sol {
 
 				for (auto&& library : libraries) {
 					switch (library) {
-#if SOL_LUA_VERSION <= 501 && defined(SOL_LUAJIT)
+#if SOL_LUA_VESION_I_ <= 501 && defined(SOL_LUAJIT)
 					case lib::coroutine:
 #endif // luajit opens coroutine base stuff
 					case lib::base:
@@ -133,7 +133,7 @@ namespace sol {
 						break;
 #if !defined(SOL_LUAJIT)
 					case lib::coroutine:
-#if SOL_LUA_VERSION > 501
+#if SOL_LUA_VESION_I_ > 501
 						luaL_requiref(L, "coroutine", luaopen_coroutine, 1);
 						lua_pop(L, 1);
 #endif // Lua 5.2+ only
@@ -155,7 +155,7 @@ namespace sol {
 #ifdef SOL_LUAJIT
 						luaL_requiref(L, "bit32", luaopen_bit, 1);
 						lua_pop(L, 1);
-#elif (SOL_LUA_VERSION == 502) || defined(LUA_COMPAT_BITLIB) || defined(LUA_COMPAT_5_2)
+#elif (SOL_LUA_VESION_I_ == 502) || defined(LUA_COMPAT_BITLIB) || defined(LUA_COMPAT_5_2)
 						luaL_requiref(L, "bit32", luaopen_bit32, 1);
 						lua_pop(L, 1);
 #else
@@ -174,7 +174,7 @@ namespace sol {
 						lua_pop(L, 1);
 						break;
 					case lib::utf8:
-#if SOL_LUA_VERSION > 502 && !defined(SOL_LUAJIT)
+#if SOL_LUA_VESION_I_ > 502 && !defined(SOL_LUAJIT)
 						luaL_requiref(L, "utf8", luaopen_utf8, 1);
 						lua_pop(L, 1);
 #endif // Lua 5.3+ only
@@ -227,7 +227,7 @@ namespace sol {
 			// one day Lua 5.1 will die a peaceful death
 			// and its old bones will find blissful rest
 			auto loaders_proxy = package
-#if SOL_LUA_VERSION < 502
+#if SOL_LUA_VESION_I_ < 502
 			     ["loaders"]
 #else
 			     ["searchers"]
@@ -255,7 +255,7 @@ namespace sol {
 			// one day Lua 5.1 will die a peaceful death
 			// and its old bones will find blissful rest
 			auto loaders_proxy = package
-#if SOL_LUA_VERSION < 502
+#if SOL_LUA_VESION_I_ < 502
 			     ["loaders"]
 #else
 			     ["searchers"]
@@ -637,8 +637,91 @@ namespace sol {
 			return s;
 		}
 
+		bool supports_gc_mode(gc_mode mode) const noexcept {
+#if SOL_LUA_VESION_I_ >= 504
+			// supports all modes
+			(void)mode;
+			return true;
+#endif
+			return mode == gc_mode::default_value;
+		}
+
+		bool is_gc_on() const {
+#if SOL_LUA_VESION_I_ >= 502
+			return lua_gc(lua_state(), LUA_GCISRUNNING, 0) == 1;
+#else
+			// You cannot turn it off in Lua 5.1
+			return true;
+#endif
+		}
+
 		void collect_garbage() {
 			lua_gc(lua_state(), LUA_GCCOLLECT, 0);
+		}
+
+		void collect_gc() {
+			collect_garbage();
+		}
+
+		bool step_gc(int step_size_kilobytes) {
+			// THOUGHT: std::chrono-alikes to map "kilobyte size" here...?
+			// Make it harder to give MB or KB to a B parameter...?
+			// Probably overkill for now.
+#if SOL_LUA_VESION_I_ >= 504
+			// The manual implies that this function is almost always successful...
+			// is it?? It could depend on the GC mode...
+			return lua_gc(lua_state(), LUA_GCSTEP, step_size_kilobytes) != 0;
+#else
+			return lua_gc(lua_state(), LUA_GCSTEP, step_size_kilobytes) == 1;
+#endif
+		}
+
+		void restart_gc() {
+			lua_gc(lua_state(), LUA_GCRESTART, 0);
+		}
+
+		void stop_gc() {
+			lua_gc(lua_state(), LUA_GCSTOP, 0);
+		}
+
+		// Returns the old GC mode. Check support using the supports_gc_mode function.
+		gc_mode change_gc_mode_incremental(int pause, int step_multiplier, int step_byte_size) {
+			// "What the fuck does any of this mean??"
+			// http://www.lua.org/manual/5.4/manual.html#2.5.1
+
+			// THOUGHT: std::chrono-alikes to map "byte size" here...?
+			// Make it harder to give MB or KB to a B parameter...?
+			// Probably overkill for now.
+#if SOL_LUA_VESION_I_ >= 504
+			int old_mode = lua_gc(lua_state(), LUA_GCINC, pause, step_multiplier, step_byte_size);
+			if (old_mode == LUA_GCGEN) {
+				return gc_mode::generational;
+			}
+			else if (old_mode == LUA_GCINC) {
+				return gc_mode::incremental;
+			}
+#else
+			lua_gc(lua_state(), LUA_GCSETPAUSE, pause);
+			lua_gc(lua_state(), LUA_GCSETSTEPMUL, step_multiplier);
+			(void)step_byte_size; // means nothing in older versions
+#endif
+			return gc_mode::default_value;
+		}
+
+		// Returns the old GC mode. Check support using the supports_gc_mode function.
+		gc_mode change_gc_mode_generational(int minor_multiplier, int major_multiplier) {
+#if SOL_LUA_VESION_I_ >= 504
+			// "What does this shit mean?"
+			// http://www.lua.org/manual/5.4/manual.html#2.5.2
+			int old_mode = lua_gc(lua_state(), LUA_GCGEN, minor_multiplier, major_multiplier);
+			if (old_mode == LUA_GCGEN) {
+				return gc_mode::generational;
+			}
+			else if (old_mode == LUA_GCINC) {
+				return gc_mode::incremental;
+			}
+#endif
+			return gc_mode::default_value;
 		}
 
 		operator lua_State*() const {
